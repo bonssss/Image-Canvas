@@ -37,7 +37,7 @@ export class CollectionService {
   }
 
   async addImage(collectionId: string, imageId: string, userId: string): Promise<boolean> {
-    return db.addImageToCollection(collectionId, imageId, userId);
+    return db.saveImageToCollection(collectionId, imageId, userId);
   }
 
   async removeImage(collectionId: string, imageId: string, userId: string): Promise<boolean> {

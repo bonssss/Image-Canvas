@@ -49,4 +49,12 @@ export const authService = {
     const res = await api.get(`/auth/profile/${identifier}`);
     return res.data.data;
   },
+
+  async updateProfilePhoto(file: File): Promise<{ avatarUrl: string }> {
+    const formData = new FormData();
+    formData.append('photo', file);
+    
+    const res = await api.post('/auth/profile-photo', formData);
+    return res.data.data;
+  }
 };

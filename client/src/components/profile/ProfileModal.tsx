@@ -225,15 +225,32 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ onClose, onViewProfi
 
                 <div>
                   <label className="text-[10px] font-semibold text-[#767676] block mb-1">
-                    Avatar URL
+                    Profile Photo
                   </label>
-                  <input
-                    type="url"
-                    required
-                    value={avatarUrl}
-                    onChange={(e) => setAvatarUrl(e.target.value)}
-                    className="w-full px-2.5 py-1.5 rounded-md bg-[#f8f8f8] dark:bg-[#242424] border border-[#e5e5e5] dark:border-[#333333] text-xs text-[#111111] dark:text-white focus:outline-none focus:border-[#111111]"
-                  />
+                  <div className="flex items-center gap-3">
+                    <img 
+                      src={avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150'} 
+                      alt="Avatar" 
+                      className="w-10 h-10 rounded-full object-cover border border-[#e5e5e5]" 
+                    />
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          try {
+                            const res = await authService.updateProfilePhoto(file);
+                            setAvatarUrl(res.avatarUrl);
+                            toast('Photo updated successfully!', { type: 'success' });
+                          } catch (err) {
+                            toast('Failed to upload photo', { type: 'error' });
+                          }
+                        }
+                      }}
+                      className="text-xs file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-xs file:bg-[#111111] file:text-white dark:file:bg-white dark:file:text-black cursor-pointer"
+                    />
+                  </div>
                 </div>
 
                 <div>
