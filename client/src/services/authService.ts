@@ -23,15 +23,16 @@ export const authService = {
     email: string;
     username: string;
     fullName: string;
+    password?: string;
     avatarUrl?: string;
     bio?: string;
-  }): Promise<User> {
+  }): Promise<{ user: User; token: string }> {
     const res = await api.post('/auth/register', payload);
     return res.data.data;
   },
 
-  async login(emailOrUsername: string): Promise<User> {
-    const res = await api.post('/auth/login', { emailOrUsername });
+  async login(emailOrUsername: string, password?: string): Promise<{ user: User; token: string }> {
+    const res = await api.post('/auth/login', { emailOrUsername, password });
     return res.data.data;
   },
 
@@ -56,5 +57,18 @@ export const authService = {
     
     const res = await api.post('/auth/profile-photo', formData);
     return res.data.data;
+  },
+
+  async forgotPassword(email: string): Promise<{ testToken?: string }> {
+    const res = await api.post('/auth/forgot-password', { email });
+    return res.data.data; // Includes testToken if returned
+  },
+
+  async resetPassword(email: string, token: string, newPassword: string): Promise<void> {
+    await api.post('/auth/reset-password', { email, token, newPassword });
+  },
+
+  async changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    await api.post('/auth/change-password', { currentPassword, newPassword });
   }
 };

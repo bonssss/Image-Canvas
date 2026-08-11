@@ -59,11 +59,14 @@ class DatabaseStore {
 
   async upsertUser(user: User): Promise<User> {
     await this.pool.query(
-      `INSERT INTO users (id, email, username, full_name, bio, avatar_url)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO users (id, email, username, full_name, bio, avatar_url, password_hash, reset_password_token, reset_password_expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        ON CONFLICT (id) DO UPDATE SET
-       email = EXCLUDED.email, username = EXCLUDED.username, full_name = EXCLUDED.full_name, bio = EXCLUDED.bio, avatar_url = EXCLUDED.avatar_url`,
-      [user.id, user.email, user.username, user.fullName, user.bio, user.avatarUrl]
+       email = EXCLUDED.email, username = EXCLUDED.username, full_name = EXCLUDED.full_name, bio = EXCLUDED.bio, avatar_url = EXCLUDED.avatar_url, password_hash = EXCLUDED.password_hash, reset_password_token = EXCLUDED.reset_password_token, reset_password_expires_at = EXCLUDED.reset_password_expires_at`,
+      [
+        user.id, user.email, user.username, user.fullName, user.bio, user.avatarUrl, user.passwordHash || null,
+        user.resetPasswordToken || null, user.resetPasswordExpiresAt || null
+      ]
     );
     return user;
   }
@@ -209,21 +212,28 @@ class DatabaseStore {
       query += ` ORDER BY i.created_at DESC`;
     }
 
-    // Since we're replacing cursor pagination with offset, we'll just pull everything and slice (for simplicity)
-    // or properly implement offset.
-    const res = await this.pool.query(query, values);
-    let items = res.rows.map(this.mapImageRow);
-
     const startIndex = cursor ? parseInt(cursor, 10) : 0;
-    const paginatedItems = items.slice(startIndex, startIndex + limit);
-    const nextCursor = startIndex + limit < items.length ? (startIndex + limit).toString() : undefined;
+    
+    // First, let's get the total count for pagination metadata
+    const countQuery = `SELECT COUNT(*) FROM (${query}) AS count_query`;
+    const countRes = await this.pool.query(countQuery, values);
+    const total = parseInt(countRes.rows[0].count, 10);
+
+    // Now append LIMIT and OFFSET
+    query += ` LIMIT $${vIndex} OFFSET $${vIndex + 1}`;
+    values.push(limit, startIndex);
+
+    const res = await this.pool.query(query, values);
+    const paginatedItems = res.rows.map(this.mapImageRow);
+
+    const nextCursor = startIndex + limit < total ? (startIndex + limit).toString() : undefined;
 
     return {
       data: paginatedItems,
       pagination: {
         nextCursor: nextCursor || null,
         hasMore: !!nextCursor,
-        total: items.length,
+        total,
         limit,
       }
     };
@@ -458,6 +468,11 @@ class DatabaseStore {
       fullName: row.full_name,
       bio: row.bio,
       avatarUrl: row.avatar_url,
+      passwordHash: row.password_hash,
+      resetPasswordToken: row.reset_password_token,
+      resetPasswordExpiresAt: row.reset_password_expires_at,
+      createdAt: row.created_at || new Date().toISOString(),
+      updatedAt: row.updated_at || new Date().toISOString(),
     };
   }
 

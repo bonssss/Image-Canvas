@@ -11,10 +11,11 @@ interface AuthContextType {
     email: string;
     username: string;
     fullName: string;
+    password?: string;
     avatarUrl?: string;
     bio?: string;
   }) => Promise<User>;
-  login: (emailOrUsername: string) => Promise<User>;
+  login: (emailOrUsername: string, password?: string) => Promise<User>;
   logout: () => void;
   switchUser: (userId: string) => Promise<void>;
   updateProfile: (data: Partial<User>) => Promise<void>;
@@ -52,24 +53,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     email: string;
     username: string;
     fullName: string;
+    password?: string;
     avatarUrl?: string;
     bio?: string;
   }) => {
-    const newUser = await authService.register(data);
-    localStorage.setItem('promptcanvas_user_id', newUser.id);
-    setUser(newUser);
-    setAllUsers((prev) => [...prev, newUser]);
-    return newUser;
+    const res = await authService.register(data);
+    localStorage.setItem('promptcanvas_jwt', res.token);
+    localStorage.setItem('promptcanvas_user_id', res.user.id); // for backward compatibility fallback
+    setUser(res.user);
+    setAllUsers((prev) => [...prev, res.user]);
+    return res.user;
   };
 
-  const login = async (emailOrUsername: string) => {
-    const loggedInUser = await authService.login(emailOrUsername);
-    localStorage.setItem('promptcanvas_user_id', loggedInUser.id);
-    setUser(loggedInUser);
-    return loggedInUser;
+  const login = async (emailOrUsername: string, password?: string) => {
+    const res = await authService.login(emailOrUsername, password);
+    localStorage.setItem('promptcanvas_jwt', res.token);
+    localStorage.setItem('promptcanvas_user_id', res.user.id);
+    setUser(res.user);
+    return res.user;
   };
 
   const logout = () => {
+    localStorage.removeItem('promptcanvas_jwt');
     localStorage.removeItem('promptcanvas_user_id');
     setUser(null);
   };

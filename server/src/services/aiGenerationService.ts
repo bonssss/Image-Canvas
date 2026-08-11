@@ -95,8 +95,8 @@ export class AiGenerationService {
         updatedAt: new Date().toISOString(),
       };
 
-      const saved = await db.createImage(newImage);
-      generatedImages.push(saved);
+      await db.addGeneratedImages([newImage]);
+      generatedImages.push(newImage as any);
     }
 
     return generatedImages;

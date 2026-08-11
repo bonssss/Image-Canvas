@@ -11,6 +11,8 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 
+import { authService } from '../../services/authService';
+
 interface ProfileModalProps {
   onClose: () => void;
   onViewProfile?: (userIdOrUsername: string) => void;
@@ -20,7 +22,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ onClose, onViewProfi
   const { user, allUsers, switchUser, updateProfile, register, login, logout } = useAuth();
   const { toast } = useToast();
 
-  const [activeTab, setActiveTab] = useState<'profile' | 'register' | 'login' | 'switch'>(
+  const [activeTab, setActiveTab] = useState<'profile' | 'register' | 'login' | 'switch' | 'forgot-password' | 'reset-password'>(
     user ? 'profile' : 'login'
   );
 
@@ -30,15 +32,30 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ onClose, onViewProfi
   const [bio, setBio] = useState(user?.bio || '');
   const [avatarUrl, setAvatarUrl] = useState(user?.avatarUrl || '');
 
+  // Change Password fields
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+
   // Register fields
   const [regEmail, setRegEmail] = useState('');
   const [regUsername, setRegUsername] = useState('');
   const [regFullName, setRegFullName] = useState('');
+  const [regPassword, setRegPassword] = useState('');
+  const [regConfirmPassword, setRegConfirmPassword] = useState('');
   const [regBio, setRegBio] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Login field
   const [loginInput, setLoginInput] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  
+  // Forgot/Reset Password fields
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [resetToken, setResetToken] = useState('');
+  const [resetNewPassword, setResetNewPassword] = useState('');
+  const [resetConfirmPassword, setResetConfirmPassword] = useState('');
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,8 +74,13 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ onClose, onViewProfi
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!regEmail || !regUsername || !regFullName) {
+    if (!regEmail || !regUsername || !regFullName || !regPassword || !regConfirmPassword) {
       toast('Please fill out all required fields', { type: 'error' });
+      return;
+    }
+    
+    if (regPassword !== regConfirmPassword) {
+      toast('Passwords do not match', { type: 'error' });
       return;
     }
 
@@ -68,6 +90,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ onClose, onViewProfi
         email: regEmail.trim(),
         username: regUsername.trim(),
         fullName: regFullName.trim(),
+        password: regPassword,
         bio: regBio.trim(),
       });
       toast(`Welcome to PromptCanvas, ${newUser.fullName}!`, { type: 'success' });
@@ -82,19 +105,85 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ onClose, onViewProfi
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!loginInput.trim()) {
-      toast('Please enter email or username', { type: 'error' });
+    if (!loginInput.trim() || !loginPassword) {
+      toast('Please enter email/username and password', { type: 'error' });
       return;
     }
 
     try {
       setIsSubmitting(true);
-      const loggedIn = await login(loginInput.trim());
+      const loggedIn = await login(loginInput.trim(), loginPassword);
       toast(`Signed in as ${loggedIn.fullName}`, { type: 'success' });
       setActiveTab('profile');
       onClose();
     } catch (err: any) {
       toast(err.response?.data?.error || err.message || 'Sign in failed', { type: 'error' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!forgotEmail) return;
+    try {
+      setIsSubmitting(true);
+      const res = await authService.forgotPassword(forgotEmail);
+      toast('Password reset link generated. Check console for token (Testing mode).', { type: 'success' });
+      
+      // Auto-fill token for testing convenience
+      if (res.testToken) {
+        setResetToken(res.testToken);
+        console.log("TEST TOKEN:", res.testToken);
+      }
+      
+      setActiveTab('reset-password');
+    } catch (err: any) {
+      toast(err.response?.data?.error || err.message || 'Failed to request reset', { type: 'error' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (resetNewPassword !== resetConfirmPassword) {
+      toast('Passwords do not match', { type: 'error' });
+      return;
+    }
+    try {
+      setIsSubmitting(true);
+      await authService.resetPassword(forgotEmail, resetToken, resetNewPassword);
+      toast('Password reset successfully. Please log in.', { type: 'success' });
+      setActiveTab('login');
+      // Clear fields
+      setResetNewPassword('');
+      setResetConfirmPassword('');
+      setResetToken('');
+      setForgotEmail('');
+    } catch (err: any) {
+      toast(err.response?.data?.error || err.message || 'Failed to reset password', { type: 'error' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPassword !== confirmNewPassword) {
+      toast('New passwords do not match', { type: 'error' });
+      return;
+    }
+    try {
+      setIsSubmitting(true);
+      await authService.changePassword(currentPassword, newPassword);
+      toast('Password changed successfully', { type: 'success' });
+      setIsChangingPassword(false);
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmNewPassword('');
+    } catch (err: any) {
+      toast(err.response?.data?.error || err.message || 'Failed to change password', { type: 'error' });
     } finally {
       setIsSubmitting(false);
     }
@@ -265,7 +354,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ onClose, onViewProfi
                   />
                 </div>
 
-                <div className="flex items-center gap-2 pt-2">
+                <div className="flex items-center gap-2 pt-2 border-t border-[#e5e5e5] dark:border-[#333333] mt-4">
                   <button
                     type="submit"
                     className="flex-1 py-1.5 px-3 rounded-md bg-[#111111] hover:bg-black text-white dark:bg-white dark:text-[#111111] font-bold text-xs transition-colors"
@@ -274,7 +363,85 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ onClose, onViewProfi
                   </button>
                   <button
                     type="button"
-                    onClick={() => setIsEditing(false)}
+                    onClick={() => {
+                      setIsEditing(false);
+                      setIsChangingPassword(false);
+                    }}
+                    className="py-1.5 px-3 rounded-md bg-[#f5f5f5] dark:bg-[#242424] text-xs font-medium"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
+            
+            {isEditing && !isChangingPassword && (
+              <div className="mt-4 pt-4 border-t border-[#e5e5e5] dark:border-[#333333]">
+                <button
+                  type="button"
+                  onClick={() => setIsChangingPassword(true)}
+                  className="text-xs font-semibold text-[#767676] hover:text-[#111111] dark:hover:text-white transition-colors"
+                >
+                  Change Password
+                </button>
+              </div>
+            )}
+
+            {isChangingPassword && (
+              <form onSubmit={handleChangePassword} className="mt-4 pt-4 border-t border-[#e5e5e5] dark:border-[#333333] space-y-3 animate-fadeIn">
+                <h3 className="text-xs font-bold mb-2">Change Password</h3>
+                
+                <div>
+                  <label className="text-[10px] font-semibold text-[#767676] block mb-1">
+                    Current Password
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded-md bg-[#f8f8f8] dark:bg-[#242424] border border-[#e5e5e5] dark:border-[#333333] text-xs text-[#111111] dark:text-white focus:outline-none focus:border-[#111111]"
+                  />
+                </div>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[10px] font-semibold text-[#767676] block mb-1">
+                      New Password
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      className="w-full px-2.5 py-1.5 rounded-md bg-[#f8f8f8] dark:bg-[#242424] border border-[#e5e5e5] dark:border-[#333333] text-xs text-[#111111] dark:text-white focus:outline-none focus:border-[#111111]"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-semibold text-[#767676] block mb-1">
+                      Confirm New
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      value={confirmNewPassword}
+                      onChange={(e) => setConfirmNewPassword(e.target.value)}
+                      className="w-full px-2.5 py-1.5 rounded-md bg-[#f8f8f8] dark:bg-[#242424] border border-[#e5e5e5] dark:border-[#333333] text-xs text-[#111111] dark:text-white focus:outline-none focus:border-[#111111]"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 pt-2">
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="flex-1 py-1.5 px-3 rounded-md bg-[#111111] hover:bg-black text-white dark:bg-white dark:text-[#111111] font-bold text-xs transition-colors disabled:opacity-50"
+                  >
+                    {isSubmitting ? 'Updating...' : 'Update Password'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsChangingPassword(false)}
                     className="py-1.5 px-3 rounded-md bg-[#f5f5f5] dark:bg-[#242424] text-xs font-medium"
                   >
                     Cancel
@@ -336,6 +503,36 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ onClose, onViewProfi
               </div>
             </div>
 
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[10px] font-semibold text-[#767676] block mb-1">
+                  Password *
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={regPassword}
+                  onChange={(e) => setRegPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full px-2.5 py-1.5 rounded-md bg-[#f8f8f8] dark:bg-[#242424] border border-[#e5e5e5] dark:border-[#333333] text-xs text-[#111111] dark:text-white focus:outline-none focus:border-[#111111]"
+                />
+              </div>
+              
+              <div>
+                <label className="text-[10px] font-semibold text-[#767676] block mb-1">
+                  Confirm Password *
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={regConfirmPassword}
+                  onChange={(e) => setRegConfirmPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full px-2.5 py-1.5 rounded-md bg-[#f8f8f8] dark:bg-[#242424] border border-[#e5e5e5] dark:border-[#333333] text-xs text-[#111111] dark:text-white focus:outline-none focus:border-[#111111]"
+                />
+              </div>
+            </div>
+
             <div>
               <label className="text-[10px] font-semibold text-[#767676] block mb-1">
                 Artist Bio
@@ -382,6 +579,29 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ onClose, onViewProfi
               />
             </div>
 
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <label className="text-[10px] font-semibold text-[#767676]">
+                  Password
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('forgot-password')}
+                  className="text-[10px] font-semibold text-[#767676] hover:text-[#111111] dark:hover:text-white transition-colors"
+                >
+                  Forgot password?
+                </button>
+              </div>
+              <input
+                type="password"
+                required
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full px-2.5 py-2 rounded-md bg-[#f8f8f8] dark:bg-[#242424] border border-[#e5e5e5] dark:border-[#333333] text-xs text-[#111111] dark:text-white focus:outline-none focus:border-[#111111]"
+              />
+            </div>
+
             <div className="pt-2">
               <button
                 type="submit"
@@ -389,6 +609,109 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ onClose, onViewProfi
                 className="w-full py-2 px-4 rounded-lg bg-[#111111] hover:bg-black text-white dark:bg-white dark:text-[#111111] font-bold text-xs transition-colors disabled:opacity-50"
               >
                 {isSubmitting ? 'Signing In...' : 'Sign In'}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* TAB 4: FORGOT PASSWORD */}
+        {activeTab === 'forgot-password' && (
+          <form onSubmit={handleForgotPassword} className="space-y-3.5 animate-fadeIn">
+            <p className="text-xs text-[#767676]">
+              Enter your email address and we'll send you a link to reset your password.
+            </p>
+
+            <div>
+              <label className="text-[10px] font-semibold text-[#767676] block mb-1">
+                Email Address
+              </label>
+              <input
+                type="email"
+                required
+                value={forgotEmail}
+                onChange={(e) => setForgotEmail(e.target.value)}
+                placeholder="sarah@example.com"
+                className="w-full px-2.5 py-2 rounded-md bg-[#f8f8f8] dark:bg-[#242424] border border-[#e5e5e5] dark:border-[#333333] text-xs text-[#111111] dark:text-white focus:outline-none focus:border-[#111111]"
+              />
+            </div>
+
+            <div className="pt-2 flex flex-col gap-2">
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full py-2 px-4 rounded-lg bg-[#111111] hover:bg-black text-white dark:bg-white dark:text-[#111111] font-bold text-xs transition-colors disabled:opacity-50"
+              >
+                {isSubmitting ? 'Sending...' : 'Send Reset Link'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('login')}
+                className="w-full py-2 px-4 rounded-lg bg-transparent text-[#767676] hover:text-[#111111] dark:hover:text-white text-xs font-semibold transition-colors"
+              >
+                Back to Sign In
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* TAB 5: RESET PASSWORD */}
+        {activeTab === 'reset-password' && (
+          <form onSubmit={handleResetPassword} className="space-y-3.5 animate-fadeIn">
+            <p className="text-xs text-[#767676]">
+              Enter the reset token from your email (or console for testing), and choose a new password.
+            </p>
+
+            <div>
+              <label className="text-[10px] font-semibold text-[#767676] block mb-1">
+                Reset Token
+              </label>
+              <input
+                type="text"
+                required
+                value={resetToken}
+                onChange={(e) => setResetToken(e.target.value)}
+                placeholder="Paste token here"
+                className="w-full px-2.5 py-2 rounded-md bg-[#f8f8f8] dark:bg-[#242424] border border-[#e5e5e5] dark:border-[#333333] text-xs text-[#111111] dark:text-white focus:outline-none focus:border-[#111111] font-mono text-[10px]"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[10px] font-semibold text-[#767676] block mb-1">
+                  New Password
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={resetNewPassword}
+                  onChange={(e) => setResetNewPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full px-2.5 py-1.5 rounded-md bg-[#f8f8f8] dark:bg-[#242424] border border-[#e5e5e5] dark:border-[#333333] text-xs text-[#111111] dark:text-white focus:outline-none focus:border-[#111111]"
+                />
+              </div>
+              
+              <div>
+                <label className="text-[10px] font-semibold text-[#767676] block mb-1">
+                  Confirm Password
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={resetConfirmPassword}
+                  onChange={(e) => setResetConfirmPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full px-2.5 py-1.5 rounded-md bg-[#f8f8f8] dark:bg-[#242424] border border-[#e5e5e5] dark:border-[#333333] text-xs text-[#111111] dark:text-white focus:outline-none focus:border-[#111111]"
+                />
+              </div>
+            </div>
+
+            <div className="pt-2">
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full py-2 px-4 rounded-lg bg-[#111111] hover:bg-black text-white dark:bg-white dark:text-[#111111] font-bold text-xs transition-colors disabled:opacity-50"
+              >
+                {isSubmitting ? 'Resetting...' : 'Reset Password'}
               </button>
             </div>
           </form>

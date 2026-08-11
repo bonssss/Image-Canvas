@@ -14,6 +14,9 @@ CREATE TABLE users (
     email VARCHAR(255) UNIQUE NOT NULL,
     username VARCHAR(255) UNIQUE NOT NULL,
     full_name VARCHAR(255) NOT NULL,
+    password_hash VARCHAR(255),
+    reset_password_token VARCHAR(255),
+    reset_password_expires_at TIMESTAMP,
     bio TEXT,
     avatar_url TEXT
 );

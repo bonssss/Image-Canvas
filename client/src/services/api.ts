@@ -7,12 +7,16 @@ export const api = axios.create({
   timeout: 30000,
 });
 
-// Interceptor to inject active user ID
+// Interceptor to inject active user ID or JWT
 api.interceptors.request.use((config) => {
-  const activeUserId = localStorage.getItem('promptcanvas_user_id');
-  if (activeUserId) {
-    config.headers['x-user-id'] = activeUserId;
-    config.headers['Authorization'] = `Bearer ${activeUserId}`;
+  const token = localStorage.getItem('promptcanvas_jwt');
+  const fallbackId = localStorage.getItem('promptcanvas_user_id');
+  
+  const authValue = token || fallbackId;
+  
+  if (authValue) {
+    config.headers['x-user-id'] = authValue;
+    config.headers['Authorization'] = `Bearer ${authValue}`;
   }
   return config;
 });

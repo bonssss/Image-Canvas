@@ -4,6 +4,9 @@ export interface User {
   username: string;
   fullName: string;
   avatarUrl: string;
+  passwordHash?: string;
+  resetPasswordToken?: string;
+  resetPasswordExpiresAt?: string;
   bio?: string;
   createdAt: string;
   updatedAt: string;

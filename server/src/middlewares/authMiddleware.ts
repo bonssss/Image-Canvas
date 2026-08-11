@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { db } from '../db';
 import { User } from '../types';
+import jwt from 'jsonwebtoken';
 
 export interface AuthenticatedRequest extends Request {
   user?: User;
@@ -14,7 +15,17 @@ export const authenticate = async (req: AuthenticatedRequest, res: Response, nex
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.split(' ')[1];
       if (token && token !== 'undefined' && token !== 'null') {
-        userId = token;
+        try {
+          // If token looks like a raw ID (e.g., 'u-101') for backward compatibility during dev
+          if (token.startsWith('u-')) {
+            userId = token;
+          } else {
+            const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret') as { id: string };
+            userId = decoded.id;
+          }
+        } catch (err) {
+          // invalid token
+        }
       }
     }
 
