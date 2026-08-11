@@ -20,7 +20,9 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ onClose, onViewProfi
   const { user, allUsers, switchUser, updateProfile, register, login, logout } = useAuth();
   const { toast } = useToast();
 
-  const [activeTab, setActiveTab] = useState<'profile' | 'register' | 'login' | 'switch'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'register' | 'login' | 'switch'>(
+    user ? 'profile' : 'login'
+  );
 
   // Edit Profile fields
   const [isEditing, setIsEditing] = useState(false);
@@ -116,52 +118,44 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ onClose, onViewProfi
 
         {/* Modal Navigation Tabs */}
         <div className="flex items-center gap-2 mb-6 border-b border-[#e5e5e5] dark:border-[#2e2e2e] pb-2 text-xs">
-          <button
-            onClick={() => setActiveTab('profile')}
-            className={`px-3 py-1.5 rounded-md font-bold transition-colors ${
-              activeTab === 'profile'
-                ? 'bg-[#111111] text-white dark:bg-white dark:text-[#111111]'
-                : 'text-[#767676] hover:text-[#111111] dark:hover:text-white'
-            }`}
-          >
-            My Profile
-          </button>
+          {user ? (
+            <button
+              onClick={() => setActiveTab('profile')}
+              className={`px-3 py-1.5 rounded-md font-bold transition-colors ${
+                activeTab === 'profile'
+                  ? 'bg-[#111111] text-white dark:bg-white dark:text-[#111111]'
+                  : 'text-[#767676] hover:text-[#111111] dark:hover:text-white'
+              }`}
+            >
+              My Profile
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={() => setActiveTab('register')}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-md font-bold transition-colors ${
+                  activeTab === 'register'
+                    ? 'bg-[#111111] text-white dark:bg-white dark:text-[#111111]'
+                    : 'text-[#767676] hover:text-[#111111] dark:hover:text-white'
+                }`}
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>Create New User</span>
+              </button>
 
-          <button
-            onClick={() => setActiveTab('register')}
-            className={`flex items-center gap-1 px-3 py-1.5 rounded-md font-bold transition-colors ${
-              activeTab === 'register'
-                ? 'bg-[#111111] text-white dark:bg-white dark:text-[#111111]'
-                : 'text-[#767676] hover:text-[#111111] dark:hover:text-white'
-            }`}
-          >
-            <UserPlus className="w-3.5 h-3.5" />
-            <span>Create New User</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('login')}
-            className={`flex items-center gap-1 px-3 py-1.5 rounded-md font-bold transition-colors ${
-              activeTab === 'login'
-                ? 'bg-[#111111] text-white dark:bg-white dark:text-[#111111]'
-                : 'text-[#767676] hover:text-[#111111] dark:hover:text-white'
-            }`}
-          >
-            <LogIn className="w-3.5 h-3.5" />
-            <span>Sign In</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('switch')}
-            className={`flex items-center gap-1 px-3 py-1.5 rounded-md font-bold transition-colors ${
-              activeTab === 'switch'
-                ? 'bg-[#111111] text-white dark:bg-white dark:text-[#111111]'
-                : 'text-[#767676] hover:text-[#111111] dark:hover:text-white'
-            }`}
-          >
-            <Users className="w-3.5 h-3.5" />
-            <span>Creators ({allUsers.length})</span>
-          </button>
+              <button
+                onClick={() => setActiveTab('login')}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-md font-bold transition-colors ${
+                  activeTab === 'login'
+                    ? 'bg-[#111111] text-white dark:bg-white dark:text-[#111111]'
+                    : 'text-[#767676] hover:text-[#111111] dark:hover:text-white'
+                }`}
+              >
+                <LogIn className="w-3.5 h-3.5" />
+                <span>Sign In</span>
+              </button>
+            </>
+          )}
         </div>
 
         {/* TAB 1: MY PROFILE */}
@@ -383,56 +377,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ onClose, onViewProfi
           </form>
         )}
 
-        {/* TAB 4: SWITCH REAL USERS DIRECTORY */}
-        {activeTab === 'switch' && (
-          <div className="space-y-2 animate-fadeIn max-h-72 overflow-y-auto pr-1">
-            <p className="text-[11px] font-bold uppercase tracking-wider text-[#767676] mb-2">
-              Active Community Creators ({allUsers.length})
-            </p>
-            {allUsers.map((u) => {
-              const isCurrent = user?.id === u.id;
-              return (
-                <div
-                  key={u.id}
-                  className={`w-full flex items-center justify-between p-2.5 rounded-lg border transition-colors ${
-                    isCurrent
-                      ? 'border-[#111111] bg-[#f0f0f0] dark:border-white dark:bg-[#2c2c2c]'
-                      : 'border-[#e5e5e5] dark:border-[#2e2e2e] hover:bg-[#f5f5f5] dark:hover:bg-[#242424]'
-                  }`}
-                >
-                  <div
-                    onClick={() => {
-                      switchUser(u.id);
-                      toast(`Switched active creator to ${u.fullName}`, { type: 'info' });
-                    }}
-                    className="flex items-center gap-2.5 min-w-0 cursor-pointer flex-1"
-                  >
-                    <img src={u.avatarUrl} alt={u.username} className="w-8 h-8 rounded-full object-cover" />
-                    <div className="min-w-0">
-                      <p className="text-xs font-bold truncate text-[#111111] dark:text-white">{u.fullName}</p>
-                      <p className="text-[10px] text-[#767676] truncate">@{u.username} • {u.email}</p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1.5">
-                    {onViewProfile && (
-                      <button
-                        onClick={() => {
-                          onViewProfile(u.username);
-                          onClose();
-                        }}
-                        className="px-2 py-1 rounded bg-white dark:bg-[#1a1a1a] text-[10px] font-bold text-[#111111] dark:text-white border border-[#e5e5e5] dark:border-[#333333] hover:bg-[#f0f0f0]"
-                      >
-                        Portfolio
-                      </button>
-                    )}
-                    {isCurrent && <Check className="w-4 h-4 text-emerald-600 ml-1 stroke-[3]" />}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
       </div>
     </div>
   );

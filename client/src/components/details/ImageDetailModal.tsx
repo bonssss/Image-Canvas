@@ -12,6 +12,7 @@ import {
 import { ImageItem } from '../../types';
 import { imageService } from '../../services/imageService';
 import { useToast } from '../../context/ToastContext';
+import { useAuth } from '../../context/AuthContext';
 
 import { downloadImage } from '../../utils/download';
 
@@ -31,6 +32,7 @@ export const ImageDetailModal: React.FC<ImageDetailModalProps> = ({
   onSelectImage,
 }) => {
   const { toast } = useToast();
+  const { requireAuthAction } = useAuth();
   const [isLiked, setIsLiked] = useState(false);
   const [likesCount, setLikesCount] = useState(0);
   const [copiedPrompt, setCopiedPrompt] = useState(false);
@@ -51,7 +53,7 @@ export const ImageDetailModal: React.FC<ImageDetailModalProps> = ({
 
   if (!image) return null;
 
-  const handleLike = async () => {
+  const handleLike = requireAuthAction(async () => {
     const newLiked = !isLiked;
     setIsLiked(newLiked);
     setLikesCount((prev) => (newLiked ? prev + 1 : Math.max(0, prev - 1)));
@@ -65,7 +67,7 @@ export const ImageDetailModal: React.FC<ImageDetailModalProps> = ({
       setLikesCount((prev) => (newLiked ? Math.max(0, prev - 1) : prev + 1));
       toast('Failed to like image', { type: 'error' });
     }
-  };
+  });
 
   const handleCopyPrompt = () => {
     navigator.clipboard.writeText(image.prompt);
@@ -81,7 +83,7 @@ export const ImageDetailModal: React.FC<ImageDetailModalProps> = ({
     setTimeout(() => setCopiedColor(null), 2000);
   };
 
-  const handleDownload = async () => {
+  const handleDownload = requireAuthAction(async () => {
     try {
       imageService.trackDownload(image.id);
       const filename = `${image.title.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase()}-${image.id}.jpg`;
@@ -91,7 +93,7 @@ export const ImageDetailModal: React.FC<ImageDetailModalProps> = ({
     } catch {
       toast('Download failed', { type: 'error' });
     }
-  };
+  });
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/75 flex items-center justify-center p-2 sm:p-4 md:p-6 animate-fadeIn">

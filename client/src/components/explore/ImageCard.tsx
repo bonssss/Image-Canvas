@@ -3,6 +3,7 @@ import { Heart, Bookmark, Download, Wand2 } from 'lucide-react';
 import { ImageItem } from '../../types';
 import { imageService } from '../../services/imageService';
 import { useToast } from '../../context/ToastContext';
+import { useAuth } from '../../context/AuthContext';
 
 import { downloadImage } from '../../utils/download';
 
@@ -20,12 +21,13 @@ export const ImageCard: React.FC<ImageCardProps> = ({
   onRemix,
 }) => {
   const { toast } = useToast();
+  const { requireAuthAction } = useAuth();
   const [isLiked, setIsLiked] = useState(image.isLiked || false);
   const [likesCount, setLikesCount] = useState(image.likesCount || 0);
   const [isHovered, setIsHovered] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  const handleLikeClick = async (e: React.MouseEvent) => {
+  const handleLikeClick = requireAuthAction(async (e: React.MouseEvent) => {
     e.stopPropagation();
     const newLiked = !isLiked;
     setIsLiked(newLiked);
@@ -40,9 +42,9 @@ export const ImageCard: React.FC<ImageCardProps> = ({
       setLikesCount((prev) => (newLiked ? Math.max(0, prev - 1) : prev + 1));
       toast('Failed to update like', { type: 'error' });
     }
-  };
+  });
 
-  const handleDownload = async (e: React.MouseEvent) => {
+  const handleDownload = requireAuthAction(async (e: React.MouseEvent) => {
     e.stopPropagation();
     try {
       imageService.trackDownload(image.id);
@@ -53,7 +55,7 @@ export const ImageCard: React.FC<ImageCardProps> = ({
     } catch {
       toast('Download failed', { type: 'error' });
     }
-  };
+  });
 
   return (
     <div
@@ -83,9 +85,8 @@ export const ImageCard: React.FC<ImageCardProps> = ({
           (e.target as HTMLImageElement).src =
             'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&auto=format&fit=crop&q=80';
         }}
-        className={`w-full h-auto object-cover transition-opacity duration-300 ${
-          isLoaded ? 'opacity-100' : 'opacity-90'
-        }`}
+        className={`w-full h-auto object-cover transition-opacity duration-300 ${isLoaded ? 'opacity-100' : 'opacity-90'
+          }`}
       />
 
       {/* Subtle Style Tag (Permanent) */}
@@ -97,9 +98,8 @@ export const ImageCard: React.FC<ImageCardProps> = ({
 
       {/* Hover Overlay - Solid clean Unsplash actions */}
       <div
-        className={`absolute inset-0 bg-black/35 z-20 flex flex-col justify-between p-3.5 transition-opacity duration-200 ${
-          isHovered ? 'opacity-100' : 'opacity-0 pointer-events-none'
-        }`}
+        className={`absolute inset-0 bg-black/35 z-20 flex flex-col justify-between p-3.5 transition-opacity duration-200 ${isHovered ? 'opacity-100' : 'opacity-0 pointer-events-none'
+          }`}
       >
         {/* Top Action Bar */}
         <div className="flex items-center justify-between gap-2">
@@ -156,11 +156,10 @@ export const ImageCard: React.FC<ImageCardProps> = ({
           <div className="flex items-center gap-1.5">
             <button
               onClick={handleLikeClick}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold transition-colors ${
-                isLiked
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold transition-colors ${isLiked
                   ? 'bg-red-600 text-white'
                   : 'bg-white/90 hover:bg-white text-[#111111]'
-              }`}
+                }`}
             >
               <Heart className={`w-3.5 h-3.5 ${isLiked ? 'fill-white' : ''}`} />
               <span>{likesCount}</span>

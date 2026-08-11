@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { collectionController } from '../controllers/collectionController';
-import { authenticate } from '../middlewares/authMiddleware';
+import { authenticate, requireAuth } from '../middlewares/authMiddleware';
 import { validate, createCollectionSchema, updateCollectionSchema } from '../middlewares/validation';
 
 const router = Router();
@@ -15,6 +15,7 @@ router.get('/:id', authenticate, (req, res, next) => collectionController.getCol
 router.post(
   '/',
   authenticate,
+  requireAuth,
   validate(createCollectionSchema),
   (req, res, next) => collectionController.createCollection(req, res, next)
 );
@@ -23,18 +24,19 @@ router.post(
 router.patch(
   '/:id',
   authenticate,
+  requireAuth,
   validate(updateCollectionSchema),
   (req, res, next) => collectionController.updateCollection(req, res, next)
 );
 
 // Delete collection
-router.delete('/:id', authenticate, (req, res, next) => collectionController.deleteCollection(req, res, next));
+router.delete('/:id', authenticate, requireAuth, (req, res, next) => collectionController.deleteCollection(req, res, next));
 
 // Add image to collection
-router.post('/:id/images', authenticate, (req, res, next) => collectionController.addImage(req, res, next));
+router.post('/:id/images', authenticate, requireAuth, (req, res, next) => collectionController.addImage(req, res, next));
 
 // Remove image from collection
-router.delete('/:id/images/:imageId', authenticate, (req, res, next) => collectionController.removeImage(req, res, next));
+router.delete('/:id/images/:imageId', authenticate, requireAuth, (req, res, next) => collectionController.removeImage(req, res, next));
 
 // Check which collections contain a given image
 router.get('/saved-status/:imageId', authenticate, (req, res, next) => collectionController.getSavedCollectionsForImage(req, res, next));

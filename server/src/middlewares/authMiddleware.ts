@@ -9,38 +9,41 @@ export interface AuthenticatedRequest extends Request {
 export const authenticate = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const authHeader = req.headers.authorization;
-    let userId = 'u-101'; // Default fallback demo user (Alex Vance / NovaArtisan)
+    let userId: string | undefined = undefined;
 
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.split(' ')[1];
-      // Check if custom header specified user id or demo token
-      if (token && token.startsWith('u-')) {
+      if (token && token !== 'undefined' && token !== 'null') {
         userId = token;
       }
     }
 
     const userHeader = req.headers['x-user-id'] as string;
-    if (userHeader) {
+    if (userHeader && userHeader !== 'undefined' && userHeader !== 'null') {
       userId = userHeader;
     }
 
-    const user = await db.getUser(userId);
-    if (user) {
-      req.user = user;
-    } else {
-      req.user = {
-        id: userId,
-        email: 'user@artisan.ai',
-        username: 'Creator',
-        fullName: 'Creative Explorer',
-        avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
+    if (userId) {
+      // Find the user dynamically
+      let user = await db.getUserByEmail(userId);
+      if (!user) user = await db.getUserByUsername(userId);
+      if (!user) user = await db.getUser(userId);
+
+      if (user) {
+        req.user = user;
+      }
     }
 
     next();
   } catch (err) {
     next(err);
   }
+};
+
+export const requireAuth = (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
+  if (!req.user) {
+    res.status(401).json({ success: false, error: 'Authentication required to perform this action' });
+    return;
+  }
+  next();
 };

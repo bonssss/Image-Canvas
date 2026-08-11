@@ -12,9 +12,11 @@ export const api = axios.create({
 
 // Interceptor to inject active user ID
 api.interceptors.request.use((config) => {
-  const activeUserId = localStorage.getItem('promptcanvas_user_id') || 'u-101';
-  config.headers['x-user-id'] = activeUserId;
-  config.headers['Authorization'] = `Bearer ${activeUserId}`;
+  const activeUserId = localStorage.getItem('promptcanvas_user_id');
+  if (activeUserId) {
+    config.headers['x-user-id'] = activeUserId;
+    config.headers['Authorization'] = `Bearer ${activeUserId}`;
+  }
   return config;
 });
 

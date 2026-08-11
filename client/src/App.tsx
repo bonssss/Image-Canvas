@@ -18,9 +18,11 @@ import { imageService } from './services/imageService';
 import { collectionService } from './services/collectionService';
 import { generateService } from './services/generateService';
 import { useToast } from './context/ToastContext';
+import { useAuth } from './context/AuthContext';
 
 export const App: React.FC = () => {
   const { toast } = useToast();
+  const { requireAuthAction } = useAuth();
 
   // Navigation State
   const [activeTab, setActiveTab] = useState<'explore' | 'generate' | 'collections' | 'favorites'>('explore');
@@ -57,6 +59,17 @@ export const App: React.FC = () => {
   const [remixPrompt, setRemixPrompt] = useState<string>('');
   const [remixStyle, setRemixStyle] = useState<string>('cinematic');
   const [remixAspectRatio, setRemixAspectRatio] = useState<'1:1' | '16:9' | '9:16' | '4:5' | '3:4' | '21:9'>('1:1');
+
+  // Listen for auth required events
+  useEffect(() => {
+    const handleRequireLogin = () => {
+      setShowProfileModal(true);
+      toast('Please sign in to perform this action', { type: 'info' });
+    };
+
+    window.addEventListener('require-login', handleRequireLogin);
+    return () => window.removeEventListener('require-login', handleRequireLogin);
+  }, [toast]);
 
   // 1. Initial Taxonomies & Collections Load
   useEffect(() => {
@@ -127,7 +140,7 @@ export const App: React.FC = () => {
     setSelectedSort('trending');
   };
 
-  const handleRemix = (image: ImageItem) => {
+  const handleRemix = requireAuthAction((image: ImageItem) => {
     setRemixPrompt(image.prompt);
     setRemixStyle(image.style?.slug || 'cinematic');
     setRemixAspectRatio(
@@ -135,7 +148,7 @@ export const App: React.FC = () => {
     );
     setActiveTab('generate');
     toast('Preloaded prompt in Studio', { description: image.title, type: 'info' });
-  };
+  });
 
   return (
     <div className="min-h-screen flex flex-col bg-white dark:bg-[#121212] text-[#111111] dark:text-[#f5f5f5] transition-colors duration-200">
@@ -143,8 +156,17 @@ export const App: React.FC = () => {
       <Navbar
         activeTab={activeTab}
         setActiveTab={(tab) => {
-          setActiveTab(tab);
-          setActiveCollectionId(null);
+          if ((tab === 'generate' || tab === 'collections' || tab === 'favorites')) {
+            requireAuthAction(() => {
+              setActiveTab(tab);
+              setActiveCollectionId(null);
+              setActiveUserIdentifier(null);
+            })();
+          } else {
+            setActiveTab(tab);
+            setActiveCollectionId(null);
+            setActiveUserIdentifier(null);
+          }
         }}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
@@ -205,7 +227,7 @@ export const App: React.FC = () => {
                   error={error}
                   onLoadMore={handleLoadMore}
                   onSelectImage={(img) => setDetailImage(img)}
-                  onOpenSaveModal={(img) => setSaveImage(img)}
+                  onOpenSaveModal={requireAuthAction((img: ImageItem) => setSaveImage(img))}
                   onRemix={handleRemix}
                   onRetry={() => fetchImages()}
                   onResetFilters={handleResetFilters}
@@ -271,7 +293,7 @@ export const App: React.FC = () => {
         <ImageDetailModal
           image={detailImage}
           onClose={() => setDetailImage(null)}
-          onOpenSaveModal={(img) => setSaveImage(img)}
+          onOpenSaveModal={requireAuthAction((img: ImageItem) => setSaveImage(img))}
           onRemix={handleRemix}
           onSelectImage={(img) => setDetailImage(img)}
         />

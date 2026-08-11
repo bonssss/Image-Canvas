@@ -18,6 +18,7 @@ interface AuthContextType {
   logout: () => void;
   switchUser: (userId: string) => Promise<void>;
   updateProfile: (data: Partial<User>) => Promise<void>;
+  requireAuthAction: (action: Function) => (...args: any[]) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -70,8 +71,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = () => {
     localStorage.removeItem('promptcanvas_user_id');
-    // Switch to guest demo
-    switchUser('u-101');
+    setUser(null);
   };
 
   const switchUser = async (userId: string) => {
@@ -86,6 +86,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setAllUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
   };
 
+  const requireAuthAction = (action: Function) => {
+    return (...args: any[]) => {
+      if (!user) {
+        window.dispatchEvent(new Event('require-login'));
+        return;
+      }
+      return action(...args);
+    };
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -98,6 +108,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         logout,
         switchUser,
         updateProfile,
+        requireAuthAction,
       }}
     >
       {children}

@@ -9,504 +9,447 @@ import {
   CursorPaginationParams,
   PaginatedResponse,
 } from '../types';
-import {
-  seedUsers,
-  seedCategories,
-  seedStyles,
-  seedImages,
-  seedCollections,
-  seedCollectionImages,
-} from './seedData';
 
-// In-memory relational store that mirrors the PostgreSQL schema
 class DatabaseStore {
-  private users: Map<string, User> = new Map();
-  private categories: Map<string, Category> = new Map();
-  private styles: Map<string, Style> = new Map();
-  private images: Map<string, ImageItem> = new Map();
-  private collections: Map<string, Collection> = new Map();
-  private collectionImages: Array<{ id: string; collectionId: string; imageId: string; createdAt: string }> = [];
-  private likes: Set<string> = new Set(); // format: `${userId}:${imageId}`
-  private imageViews: Array<{ imageId: string; userId?: string; createdAt: string }> = [];
-
-  private pool: Pool | null = null;
+  public pool: Pool;
   public isPostgresConnected: boolean = false;
 
   constructor() {
-    this.seedInitialData();
+    this.pool = new Pool({
+      connectionString: config.databaseUrl,
+    });
     this.initializePostgres();
   }
 
   private async initializePostgres() {
     try {
-      if (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('localhost:5432/image_discovery')) {
-        this.pool = new Pool({
-          connectionString: config.databaseUrl,
-          ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined,
-        });
-        const client = await this.pool.connect();
-        client.release();
-        this.isPostgresConnected = true;
-        console.log('✅ Connected to PostgreSQL database successfully.');
-      } else {
-        console.log('ℹ️  Running in-memory database store initialized with rich AI dataset.');
-      }
+      const client = await this.pool.connect();
+      client.release();
+      this.isPostgresConnected = true;
+      console.log('✅ Connected to PostgreSQL database successfully.');
     } catch (err: any) {
-      console.log('ℹ️  PostgreSQL connection unavailable or not configured. Running optimized in-memory store.');
+      console.error('❌ PostgreSQL connection failed:', err);
       this.isPostgresConnected = false;
     }
   }
 
-  private seedInitialData() {
-    seedUsers.forEach((u) => this.users.set(u.id, { ...u }));
-    seedCategories.forEach((c) => this.categories.set(c.id, { ...c }));
-    seedStyles.forEach((s) => this.styles.set(s.id, { ...s }));
-    seedImages.forEach((img) => this.images.set(img.id, { ...img }));
-    seedCollections.forEach((col) => this.collections.set(col.id, { ...col }));
-    seedCollectionImages.forEach((ci, idx) => {
-      this.collectionImages.push({
-        id: `ci-${idx + 1}`,
-        collectionId: ci.collectionId,
-        imageId: ci.imageId,
-        createdAt: new Date().toISOString(),
-      });
-    });
-  }
-
   // ----------------- USERS -----------------
   async getUser(id: string): Promise<User | null> {
-    return this.users.get(id) || null;
+    const res = await this.pool.query('SELECT * FROM users WHERE id = $1', [id]);
+    if (res.rows.length === 0) return null;
+    return this.mapUser(res.rows[0]);
   }
 
   async getUserByEmail(email: string): Promise<User | null> {
-    for (const u of this.users.values()) {
-      if (u.email.toLowerCase() === email.toLowerCase()) return u;
-    }
-    return null;
+    const res = await this.pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    if (res.rows.length === 0) return null;
+    return this.mapUser(res.rows[0]);
   }
 
   async getUserByUsername(username: string): Promise<User | null> {
-    for (const u of this.users.values()) {
-      if (u.username.toLowerCase() === username.toLowerCase()) return u;
-    }
-    return null;
+    const res = await this.pool.query('SELECT * FROM users WHERE username = $1', [username]);
+    if (res.rows.length === 0) return null;
+    return this.mapUser(res.rows[0]);
   }
 
   async getAllUsers(): Promise<User[]> {
-    return Array.from(this.users.values());
+    const res = await this.pool.query('SELECT * FROM users');
+    return res.rows.map(this.mapUser);
   }
 
   async upsertUser(user: User): Promise<User> {
-    this.users.set(user.id, user);
+    await this.pool.query(
+      `INSERT INTO users (id, email, username, full_name, bio, avatar_url)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (id) DO UPDATE SET
+       email = EXCLUDED.email, username = EXCLUDED.username, full_name = EXCLUDED.full_name, bio = EXCLUDED.bio, avatar_url = EXCLUDED.avatar_url`,
+      [user.id, user.email, user.username, user.fullName, user.bio, user.avatarUrl]
+    );
     return user;
   }
 
   async getUserProfileData(userIdOrUsername: string) {
-    let targetUser = this.users.get(userIdOrUsername);
+    let targetUser = await this.getUser(userIdOrUsername);
     if (!targetUser) {
-      for (const u of this.users.values()) {
-        if (u.username.toLowerCase() === userIdOrUsername.toLowerCase()) {
-          targetUser = u;
-          break;
-        }
-      }
+      targetUser = await this.getUserByUsername(userIdOrUsername);
     }
     if (!targetUser) return null;
 
-    // Get images created by this user
-    const createdImages = Array.from(this.images.values())
-      .filter((img) => img.userId === targetUser!.id)
-      .map((img) => this.hydrateImage(img, targetUser!.id));
+    const createdRes = await this.pool.query(`
+      SELECT i.*, 
+        u.id as user_id, u.username as user_username, u.full_name as user_full_name, u.avatar_url as user_avatar_url,
+        c.id as category_id, c.name as category_name, c.slug as category_slug,
+        s.id as style_id, s.name as style_name, s.slug as style_slug,
+        EXISTS(SELECT 1 FROM likes l WHERE l.image_id = i.id AND l.user_id = $1) as is_liked
+      FROM images i
+      LEFT JOIN users u ON i.user_id = u.id
+      LEFT JOIN categories c ON i.category_id = c.id
+      LEFT JOIN styles s ON i.style_id = s.id
+      WHERE i.user_id = $1
+      ORDER BY i.created_at DESC`, [targetUser.id]);
+    
+    const createdImages = createdRes.rows.map(this.mapImageRow);
 
-    // Get collections created by this user
-    const userCollections = Array.from(this.collections.values())
-      .filter((col) => col.userId === targetUser!.id)
-      .map((col) => this.hydrateCollection(col));
+    const colsRes = await this.pool.query(`
+      SELECT c.*,
+        (SELECT COUNT(*) FROM collection_images ci WHERE ci.collection_id = c.id) as images_count
+      FROM collections c
+      WHERE c.user_id = $1
+      ORDER BY c.created_at DESC`, [targetUser.id]);
+    const collections = colsRes.rows.map(this.mapCollectionRow);
 
-    // Get images liked by this user
-    const likedImageIds: string[] = [];
-    for (const entry of this.likes) {
-      if (entry.startsWith(`${targetUser.id}:`)) {
-        likedImageIds.push(entry.split(':')[1]);
-      }
-    }
-    const likedImages = likedImageIds
-      .map((id) => this.images.get(id))
-      .filter(Boolean)
-      .map((img) => this.hydrateImage(img!, targetUser!.id));
+    const likedRes = await this.pool.query(`
+      SELECT i.*, 
+        u.id as user_id, u.username as user_username, u.full_name as user_full_name, u.avatar_url as user_avatar_url,
+        c.id as category_id, c.name as category_name, c.slug as category_slug,
+        s.id as style_id, s.name as style_name, s.slug as style_slug,
+        true as is_liked
+      FROM images i
+      JOIN likes l ON i.id = l.image_id
+      LEFT JOIN users u ON i.user_id = u.id
+      LEFT JOIN categories c ON i.category_id = c.id
+      LEFT JOIN styles s ON i.style_id = s.id
+      WHERE l.user_id = $1
+      ORDER BY l.created_at DESC`, [targetUser.id]);
+    
+    const likedImages = likedRes.rows.map(this.mapImageRow);
 
     return {
       user: targetUser,
       stats: {
         createdCount: createdImages.length,
-        collectionsCount: userCollections.length,
+        collectionsCount: collections.length,
         likesCount: likedImages.length,
       },
       createdImages,
-      collections: userCollections,
+      collections,
       likedImages,
     };
   }
 
   // ----------------- TAXONOMY -----------------
   async getCategories(): Promise<Category[]> {
-    const list = Array.from(this.categories.values());
-    return list.map((cat) => {
-      if (cat.slug === 'all') {
-        return { ...cat, imagesCount: this.images.size };
-      }
-      const count = Array.from(this.images.values()).filter((img) => img.categoryId === cat.id).length;
-      return { ...cat, imagesCount: count };
+    const res = await this.pool.query(`
+      SELECT c.*, COUNT(i.id) as images_count
+      FROM categories c
+      LEFT JOIN images i ON c.id = i.category_id
+      GROUP BY c.id
+      ORDER BY c.name ASC
+    `);
+    
+    // For 'all' category, get total images
+    const totalRes = await this.pool.query(`SELECT COUNT(*) FROM images`);
+    const total = parseInt(totalRes.rows[0].count);
+
+    return res.rows.map((r) => {
+      if (r.slug === 'all') return { ...this.mapCategory(r), imagesCount: total };
+      return { ...this.mapCategory(r), imagesCount: parseInt(r.images_count) };
     });
   }
 
   async getStyles(): Promise<Style[]> {
-    const list = Array.from(this.styles.values());
-    return list.map((st) => {
-      const count = Array.from(this.images.values()).filter((img) => img.styleId === st.id).length;
-      return { ...st, imagesCount: count };
-    });
+    const res = await this.pool.query(`
+      SELECT s.*, COUNT(i.id) as images_count
+      FROM styles s
+      LEFT JOIN images i ON s.id = i.style_id
+      GROUP BY s.id
+      ORDER BY s.name ASC
+    `);
+    return res.rows.map((r) => ({ ...this.mapStyle(r), imagesCount: parseInt(r.images_count) }));
   }
 
   // ----------------- IMAGES -----------------
-  private hydrateImage(img: ImageItem, currentUserId?: string): ImageItem {
-    const creator = img.userId ? this.users.get(img.userId) : undefined;
-    const category = img.categoryId ? this.categories.get(img.categoryId) : undefined;
-    const style = img.styleId ? this.styles.get(img.styleId) : undefined;
-    const isLiked = currentUserId ? this.likes.has(`${currentUserId}:${img.id}`) : false;
-
-    return {
-      ...img,
-      creator: creator
-        ? {
-            id: creator.id,
-            username: creator.username,
-            fullName: creator.fullName,
-            avatarUrl: creator.avatarUrl,
-          }
-        : undefined,
-      category: category ? { id: category.id, name: category.name, slug: category.slug } : undefined,
-      style: style ? { id: style.id, name: style.name, slug: style.slug } : undefined,
-      isLiked,
-    };
-  }
-
   async getImages(params: CursorPaginationParams, currentUserId?: string): Promise<PaginatedResponse<ImageItem>> {
-    const {
-      cursor,
-      limit = 20,
-      sort = 'trending',
-      category,
-      style,
-      color,
-      search,
-      userId,
-      aspectRatio,
-    } = params;
+    const { cursor, limit = 20, sort = 'trending', category, style, search, userId, aspectRatio } = params;
 
-    let items = Array.from(this.images.values());
+    let query = `
+      SELECT i.*, 
+        u.id as user_id, u.username as user_username, u.full_name as user_full_name, u.avatar_url as user_avatar_url,
+        c.id as category_id, c.name as category_name, c.slug as category_slug,
+        s.id as style_id, s.name as style_name, s.slug as style_slug,
+        EXISTS(SELECT 1 FROM likes l WHERE l.image_id = i.id AND l.user_id = $1) as is_liked
+      FROM images i
+      LEFT JOIN users u ON i.user_id = u.id
+      LEFT JOIN categories c ON i.category_id = c.id
+      LEFT JOIN styles s ON i.style_id = s.id
+      WHERE 1=1
+    `;
+    const values: any[] = [currentUserId || null];
+    let vIndex = 2;
 
-    // 1. Filter by category
     if (category && category !== 'all') {
-      const catObj = Array.from(this.categories.values()).find(
-        (c) => c.slug.toLowerCase() === category.toLowerCase() || c.id === category
-      );
-      if (catObj) {
-        items = items.filter((img) => img.categoryId === catObj.id);
-      }
+      query += ` AND (c.slug = $${vIndex} OR c.id = $${vIndex})`;
+      values.push(category);
+      vIndex++;
     }
-
-    // 2. Filter by style
     if (style && style !== 'all') {
-      const styleObj = Array.from(this.styles.values()).find(
-        (s) => s.slug.toLowerCase() === style.toLowerCase() || s.id === style
-      );
-      if (styleObj) {
-        items = items.filter((img) => img.styleId === styleObj.id);
-      }
+      query += ` AND (s.slug = $${vIndex} OR s.id = $${vIndex})`;
+      values.push(style);
+      vIndex++;
     }
-
-    // 3. Filter by color (hex or general palette similarity)
-    if (color && color !== 'all') {
-      const cleanColor = color.toLowerCase().trim();
-      items = items.filter((img) => {
-        if (img.dominantColor.toLowerCase().includes(cleanColor)) return true;
-        return img.palette?.some((p) => p.toLowerCase().includes(cleanColor));
-      });
-    }
-
-    // 4. Filter by aspect ratio
     if (aspectRatio && aspectRatio !== 'all') {
-      items = items.filter((img) => img.aspectRatio === aspectRatio);
+      query += ` AND i.aspect_ratio = $${vIndex}`;
+      values.push(aspectRatio);
+      vIndex++;
     }
-
-    // 5. Filter by user
     if (userId) {
-      items = items.filter((img) => img.userId === userId);
+      query += ` AND i.user_id = $${vIndex}`;
+      values.push(userId);
+      vIndex++;
     }
-
-    // 6. Search query
     if (search && search.trim().length > 0) {
-      const q = search.toLowerCase().trim();
-      items = items.filter(
-        (img) =>
-          img.title.toLowerCase().includes(q) ||
-          img.prompt.toLowerCase().includes(q) ||
-          img.model.toLowerCase().includes(q)
-      );
+      query += ` AND (i.title ILIKE $${vIndex} OR i.prompt ILIKE $${vIndex})`;
+      values.push(`%${search}%`);
+      vIndex++;
     }
 
-    // 7. Sort
-    items.sort((a, b) => {
-      if (sort === 'trending') {
-        const scoreA = a.likesCount * 3 + a.viewsCount + a.savesCount * 2;
-        const scoreB = b.likesCount * 3 + b.viewsCount + b.savesCount * 2;
-        return scoreB - scoreA;
-      }
-      if (sort === 'likes') {
-        return b.likesCount - a.likesCount;
-      }
-      if (sort === 'views') {
-        return b.viewsCount - a.viewsCount;
-      }
-      // 'newest'
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    });
-
-    // 8. Cursor pagination
-    let startIndex = 0;
-    if (cursor) {
-      const cursorIndex = items.findIndex((img) => img.id === cursor);
-      if (cursorIndex !== -1) {
-        startIndex = cursorIndex + 1;
-      }
+    if (sort === 'trending') {
+      query += ` ORDER BY i.likes_count DESC, i.created_at DESC`;
+    } else if (sort === 'newest') {
+      query += ` ORDER BY i.created_at DESC`;
     }
 
+    // Since we're replacing cursor pagination with offset, we'll just pull everything and slice (for simplicity)
+    // or properly implement offset.
+    const res = await this.pool.query(query, values);
+    let items = res.rows.map(this.mapImageRow);
+
+    const startIndex = cursor ? parseInt(cursor, 10) : 0;
     const paginatedItems = items.slice(startIndex, startIndex + limit);
-    const hasMore = startIndex + limit < items.length;
-    const nextCursor = hasMore && paginatedItems.length > 0 ? paginatedItems[paginatedItems.length - 1].id : null;
-
-    const hydrated = paginatedItems.map((img) => this.hydrateImage(img, currentUserId));
+    const nextCursor = startIndex + limit < items.length ? (startIndex + limit).toString() : undefined;
 
     return {
-      data: hydrated,
+      data: paginatedItems,
       pagination: {
-        nextCursor,
-        hasMore,
+        nextCursor: nextCursor || null,
+        hasMore: !!nextCursor,
         total: items.length,
         limit,
-      },
+      }
     };
   }
 
   async getImageById(id: string, currentUserId?: string): Promise<ImageItem | null> {
-    const img = this.images.get(id);
-    if (!img) return null;
-    return this.hydrateImage(img, currentUserId);
+    const query = `
+      SELECT i.*, 
+        u.id as user_id, u.username as user_username, u.full_name as user_full_name, u.avatar_url as user_avatar_url,
+        c.id as category_id, c.name as category_name, c.slug as category_slug,
+        s.id as style_id, s.name as style_name, s.slug as style_slug,
+        EXISTS(SELECT 1 FROM likes l WHERE l.image_id = i.id AND l.user_id = $1) as is_liked
+      FROM images i
+      LEFT JOIN users u ON i.user_id = u.id
+      LEFT JOIN categories c ON i.category_id = c.id
+      LEFT JOIN styles s ON i.style_id = s.id
+      WHERE i.id = $2
+    `;
+    const res = await this.pool.query(query, [currentUserId || null, id]);
+    if (res.rows.length === 0) return null;
+    return this.mapImageRow(res.rows[0]);
   }
 
-  async createImage(image: ImageItem): Promise<ImageItem> {
-    this.images.set(image.id, image);
-    return this.hydrateImage(image, image.userId);
+  async trackImageView(imageId: string, userId?: string) {
+    await this.pool.query(
+      `INSERT INTO image_views (image_id, user_id) VALUES ($1, $2)`,
+      [imageId, userId || null]
+    );
+    await this.pool.query(
+      `UPDATE images SET views_count = views_count + 1 WHERE id = $1`,
+      [imageId]
+    );
   }
 
-  async toggleLike(imageId: string, userId: string): Promise<{ isLiked: boolean; likesCount: number }> {
-    const img = this.images.get(imageId);
-    if (!img) throw new Error('Image not found');
-
-    const key = `${userId}:${imageId}`;
-    let isLiked = false;
-
-    if (this.likes.has(key)) {
-      this.likes.delete(key);
-      img.likesCount = Math.max(0, img.likesCount - 1);
-      isLiked = false;
+  async toggleLike(imageId: string, userId: string): Promise<boolean> {
+    const res = await this.pool.query(
+      `SELECT 1 FROM likes WHERE user_id = $1 AND image_id = $2`,
+      [userId, imageId]
+    );
+    if (res.rows.length > 0) {
+      await this.pool.query(`DELETE FROM likes WHERE user_id = $1 AND image_id = $2`, [userId, imageId]);
+      await this.pool.query(`UPDATE images SET likes_count = likes_count - 1 WHERE id = $1`, [imageId]);
+      return false; // unliked
     } else {
-      this.likes.add(key);
-      img.likesCount += 1;
-      isLiked = true;
+      await this.pool.query(`INSERT INTO likes (user_id, image_id) VALUES ($1, $2)`, [userId, imageId]);
+      await this.pool.query(`UPDATE images SET likes_count = likes_count + 1 WHERE id = $1`, [imageId]);
+      return true; // liked
     }
-
-    return { isLiked, likesCount: img.likesCount };
-  }
-
-  async incrementViews(imageId: string, userId?: string): Promise<number> {
-    const img = this.images.get(imageId);
-    if (!img) return 0;
-    img.viewsCount += 1;
-    this.imageViews.push({ imageId, userId, createdAt: new Date().toISOString() });
-    return img.viewsCount;
-  }
-
-  async incrementDownloads(imageId: string): Promise<number> {
-    const img = this.images.get(imageId);
-    if (!img) return 0;
-    img.downloadsCount += 1;
-    return img.downloadsCount;
   }
 
   async getLikedImages(userId: string): Promise<ImageItem[]> {
-    const likedImageIds: string[] = [];
-    for (const key of this.likes.values()) {
-      if (key.startsWith(`${userId}:`)) {
-        likedImageIds.push(key.split(':')[1]);
-      }
-    }
-    return likedImageIds
-      .map((id) => this.images.get(id))
-      .filter((img): img is ImageItem => !!img)
-      .map((img) => this.hydrateImage(img, userId));
+    const res = await this.pool.query(`
+      SELECT i.*, 
+        u.id as user_id, u.username as user_username, u.full_name as user_full_name, u.avatar_url as user_avatar_url,
+        c.id as category_id, c.name as category_name, c.slug as category_slug,
+        s.id as style_id, s.name as style_name, s.slug as style_slug,
+        true as is_liked
+      FROM images i
+      JOIN likes l ON i.id = l.image_id
+      LEFT JOIN users u ON i.user_id = u.id
+      LEFT JOIN categories c ON i.category_id = c.id
+      LEFT JOIN styles s ON i.style_id = s.id
+      WHERE l.user_id = $1
+      ORDER BY l.created_at DESC
+    `, [userId]);
+    return res.rows.map(this.mapImageRow);
   }
 
-  async getRelatedImages(imageId: string, limit = 8, currentUserId?: string): Promise<ImageItem[]> {
-    const current = this.images.get(imageId);
-    if (!current) return [];
-
-    const items = Array.from(this.images.values()).filter((img) => img.id !== imageId);
-    items.sort((a, b) => {
-      let scoreA = 0;
-      let scoreB = 0;
-      if (a.categoryId === current.categoryId) scoreA += 3;
-      if (b.categoryId === current.categoryId) scoreB += 3;
-      if (a.styleId === current.styleId) scoreA += 2;
-      if (b.styleId === current.styleId) scoreB += 2;
-      return scoreB - scoreA;
-    });
-
-    return items.slice(0, limit).map((img) => this.hydrateImage(img, currentUserId));
+  async addGeneratedImages(images: ImageItem[]) {
+    for (const img of images) {
+      await this.pool.query(
+        `INSERT INTO images (id, title, prompt, image_url, category_id, style_id, aspect_ratio, created_at, user_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [img.id, img.title, img.prompt, img.imageUrl, img.categoryId, img.style?.id, img.aspectRatio, img.createdAt, img.userId]
+      );
+    }
   }
 
   // ----------------- COLLECTIONS -----------------
-  private hydrateCollection(col: Collection): Collection {
-    const user = this.users.get(col.userId);
-    const coverImage = col.coverImageId ? this.images.get(col.coverImageId) : undefined;
-
-    // Get 3 preview images for collage preview card (Unsplash layout)
-    const colImageLinks = this.collectionImages.filter((ci) => ci.collectionId === col.id);
-    const previewImages = colImageLinks
-      .map((ci) => this.images.get(ci.imageId))
-      .filter((img): img is ImageItem => !!img)
-      .slice(0, 3)
-      .map((img) => this.hydrateImage(img));
-
-    return {
-      ...col,
-      imagesCount: colImageLinks.length,
-      user: user
-        ? {
-            id: user.id,
-            username: user.username,
-            fullName: user.fullName,
-            avatarUrl: user.avatarUrl,
-          }
-        : undefined,
-      coverImage: coverImage ? this.hydrateImage(coverImage) : previewImages[0],
-      previewImages,
-    };
-  }
-
   async getCollections(userId?: string): Promise<Collection[]> {
-    let list = Array.from(this.collections.values());
-    if (userId) {
-      list = list.filter((col) => !col.isPrivate || col.userId === userId);
-    } else {
-      list = list.filter((col) => !col.isPrivate);
-    }
-    return list.map((col) => this.hydrateCollection(col));
+    const res = await this.pool.query(`
+      SELECT c.*,
+        (SELECT COUNT(*) FROM collection_images ci WHERE ci.collection_id = c.id) as images_count
+      FROM collections c
+      WHERE (c.is_private = false OR c.user_id = $1)
+      ORDER BY c.created_at DESC
+    `, [userId || null]);
+    return res.rows.map(this.mapCollectionRow);
   }
 
-  async getCollectionById(id: string, currentUserId?: string): Promise<{ collection: Collection; images: ImageItem[] } | null> {
-    const col = this.collections.get(id);
-    if (!col) return null;
-    if (col.isPrivate && col.userId !== currentUserId) {
-      throw new Error('Unauthorized');
-    }
+  async getCollectionById(id: string, currentUserId?: string): Promise<(Collection & { images: ImageItem[] }) | null> {
+    const colRes = await this.pool.query(`
+      SELECT c.*,
+        (SELECT COUNT(*) FROM collection_images ci WHERE ci.collection_id = c.id) as images_count
+      FROM collections c
+      WHERE c.id = $1 AND (c.is_private = false OR c.user_id = $2)
+    `, [id, currentUserId || null]);
+    
+    if (colRes.rows.length === 0) return null;
+    const collection = this.mapCollectionRow(colRes.rows[0]);
 
-    const links = this.collectionImages.filter((ci) => ci.collectionId === id);
-    const images = links
-      .map((ci) => this.images.get(ci.imageId))
-      .filter((img): img is ImageItem => !!img)
-      .map((img) => this.hydrateImage(img, currentUserId));
+    const imgRes = await this.pool.query(`
+      SELECT i.*, 
+        u.id as user_id, u.username as user_username, u.full_name as user_full_name, u.avatar_url as user_avatar_url,
+        c.id as category_id, c.name as category_name, c.slug as category_slug,
+        s.id as style_id, s.name as style_name, s.slug as style_slug,
+        EXISTS(SELECT 1 FROM likes l WHERE l.image_id = i.id AND l.user_id = $1) as is_liked
+      FROM images i
+      JOIN collection_images ci ON i.id = ci.image_id
+      LEFT JOIN users u ON i.user_id = u.id
+      LEFT JOIN categories c ON i.category_id = c.id
+      LEFT JOIN styles s ON i.style_id = s.id
+      WHERE ci.collection_id = $2
+      ORDER BY ci.created_at DESC
+    `, [currentUserId || null, id]);
 
     return {
-      collection: this.hydrateCollection(col),
-      images,
+      ...collection,
+      images: imgRes.rows.map(this.mapImageRow),
     };
   }
 
-  async createCollection(col: Collection): Promise<Collection> {
-    this.collections.set(col.id, col);
-    return this.hydrateCollection(col);
-  }
-
-  async updateCollection(id: string, updates: Partial<Collection>, userId: string): Promise<Collection> {
-    const col = this.collections.get(id);
-    if (!col) throw new Error('Collection not found');
-    if (col.userId !== userId) throw new Error('Unauthorized');
-
-    const updated = {
-      ...col,
-      ...updates,
-      updatedAt: new Date().toISOString(),
-    };
-    this.collections.set(id, updated);
-    return this.hydrateCollection(updated);
-  }
-
-  async deleteCollection(id: string, userId: string): Promise<boolean> {
-    const col = this.collections.get(id);
-    if (!col) return false;
-    if (col.userId !== userId) throw new Error('Unauthorized');
-
-    this.collections.delete(id);
-    this.collectionImages = this.collectionImages.filter((ci) => ci.collectionId !== id);
-    return true;
-  }
-
-  async addImageToCollection(collectionId: string, imageId: string, userId: string): Promise<boolean> {
-    const col = this.collections.get(collectionId);
-    if (!col) throw new Error('Collection not found');
-    if (col.userId !== userId) throw new Error('Unauthorized');
-
-    const exists = this.collectionImages.some(
-      (ci) => ci.collectionId === collectionId && ci.imageId === imageId
+  async createCollection(data: Partial<Collection>): Promise<Collection> {
+    const id = `col-${Date.now()}`;
+    await this.pool.query(
+      `INSERT INTO collections (id, title, description, user_id, is_private)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [id, data.title, data.description, data.userId, data.isPrivate || false]
     );
-    if (!exists) {
-      this.collectionImages.push({
-        id: `ci-${Date.now()}`,
-        collectionId,
-        imageId,
-        createdAt: new Date().toISOString(),
-      });
-      const img = this.images.get(imageId);
-      if (img) img.savesCount += 1;
-    }
+    return { ...data, id, imagesCount: 0 } as Collection;
+  }
+
+  async saveImageToCollection(collectionId: string, imageId: string, userId: string): Promise<boolean> {
+    // Check ownership
+    const colRes = await this.pool.query('SELECT user_id FROM collections WHERE id = $1', [collectionId]);
+    if (colRes.rows.length === 0 || colRes.rows[0].user_id !== userId) return false;
+
+    await this.pool.query(
+      `INSERT INTO collection_images (id, collection_id, image_id)
+       VALUES ($1, $2, $3)
+       ON CONFLICT DO NOTHING`,
+      [`ci-${Date.now()}`, collectionId, imageId]
+    );
+    
+    // update cover image if needed
+    const imgRes = await this.pool.query('SELECT image_url FROM images WHERE id = $1', [imageId]);
+    await this.pool.query(
+      `UPDATE collections SET cover_image_id = $1 WHERE id = $2 AND cover_image_id IS NULL`,
+      [imageId, collectionId]
+    );
+
     return true;
   }
 
   async removeImageFromCollection(collectionId: string, imageId: string, userId: string): Promise<boolean> {
-    const col = this.collections.get(collectionId);
-    if (!col) throw new Error('Collection not found');
-    if (col.userId !== userId) throw new Error('Unauthorized');
+    const colRes = await this.pool.query('SELECT user_id FROM collections WHERE id = $1', [collectionId]);
+    if (colRes.rows.length === 0 || colRes.rows[0].user_id !== userId) return false;
 
-    this.collectionImages = this.collectionImages.filter(
-      (ci) => !(ci.collectionId === collectionId && ci.imageId === imageId)
-    );
-    const img = this.images.get(imageId);
-    if (img) img.savesCount = Math.max(0, img.savesCount - 1);
+    await this.pool.query(`DELETE FROM collection_images WHERE collection_id = $1 AND image_id = $2`, [collectionId, imageId]);
     return true;
   }
 
-  async getUserCollectionIdsForImage(userId: string, imageId: string): Promise<string[]> {
-    const userCols = Array.from(this.collections.values()).filter((c) => c.userId === userId);
-    const savedColIds: string[] = [];
-    for (const c of userCols) {
-      if (this.collectionImages.some((ci) => ci.collectionId === c.id && ci.imageId === imageId)) {
-        savedColIds.push(c.id);
-      }
-    }
-    return savedColIds;
+  async deleteCollection(id: string, userId: string): Promise<boolean> {
+    const res = await this.pool.query(`DELETE FROM collections WHERE id = $1 AND user_id = $2`, [id, userId]);
+    return res.rowCount !== null && res.rowCount > 0;
   }
+
+  // --- MAPPERS ---
+  private mapUser(row: any): User {
+    return {
+      id: row.id,
+      email: row.email,
+      username: row.username,
+      fullName: row.full_name,
+      bio: row.bio,
+      avatarUrl: row.avatar_url,
+    };
+  }
+
+  private mapCategory(row: any): Category {
+    return { id: row.id, name: row.name, slug: row.slug, icon: 'LayoutGrid' };
+  }
+
+  private mapStyle(row: any): Style {
+    return { id: row.id, name: row.name, slug: row.slug };
+  }
+
+  private mapCollectionRow(row: any): Collection {
+    return {
+      id: row.id,
+      title: row.title,
+      description: row.description,
+      userId: row.user_id,
+      coverImageId: row.cover_image_id,
+      isPrivate: row.is_private,
+      imagesCount: parseInt(row.images_count || '0'),
+      createdAt: row.created_at,
+    };
+  }
+
+  private mapImageRow = (row: any): ImageItem => {
+    return {
+      id: row.id,
+      title: row.title,
+      prompt: row.prompt,
+      imageUrl: row.image_url,
+      aspectRatio: row.aspect_ratio,
+      categoryId: row.category_id,
+      styleId: row.style_id,
+      likesCount: row.likes_count,
+      viewsCount: row.views_count,
+      createdAt: row.created_at,
+      userId: row.user_id,
+      creator: row.user_id ? {
+        id: row.user_id,
+        username: row.user_username,
+        fullName: row.user_full_name,
+        avatarUrl: row.user_avatar_url,
+      } : undefined,
+      category: row.category_id ? { id: row.category_id, name: row.category_name, slug: row.category_slug } : undefined,
+      style: row.style_id ? { id: row.style_id, name: row.style_name, slug: row.style_slug } : undefined,
+      isLiked: row.is_liked || false,
+      dominantColor: '#121212', // stub
+      palette: [], // stub
+    };
+  };
 }
 
 export const db = new DatabaseStore();
