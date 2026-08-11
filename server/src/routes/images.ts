@@ -3,6 +3,7 @@ import { imageController } from '../controllers/imageController';
 import { authenticate, requireAuth } from '../middlewares/authMiddleware';
 import { generationRateLimiter } from '../middlewares/rateLimiter';
 import { validate, generateImageSchema } from '../middlewares/validation';
+import { upload } from '../middlewares/uploadMiddleware';
 
 const router = Router();
 
@@ -11,6 +12,9 @@ router.get('/', authenticate, (req, res, next) => imageController.getImages(req,
 
 // Liked images for current user (requires auth)
 router.get('/liked', authenticate, requireAuth, (req, res, next) => imageController.getLikedImages(req, res, next));
+
+// User uploads an image
+router.post('/upload', authenticate, requireAuth, upload.single('image'), (req, res, next) => imageController.uploadImage(req, res, next));
 
 // Image details
 router.get('/:id', authenticate, (req, res, next) => imageController.getImageById(req, res, next));

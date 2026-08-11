@@ -258,20 +258,27 @@ class DatabaseStore {
     );
   }
 
-  async toggleLike(imageId: string, userId: string): Promise<boolean> {
+  async toggleLike(imageId: string, userId: string): Promise<{ isLiked: boolean; likesCount: number }> {
     const res = await this.pool.query(
       `SELECT 1 FROM likes WHERE user_id = $1 AND image_id = $2`,
       [userId, imageId]
     );
+    let isLiked = false;
+    
     if (res.rows.length > 0) {
       await this.pool.query(`DELETE FROM likes WHERE user_id = $1 AND image_id = $2`, [userId, imageId]);
       await this.pool.query(`UPDATE images SET likes_count = likes_count - 1 WHERE id = $1`, [imageId]);
-      return false; // unliked
     } else {
       await this.pool.query(`INSERT INTO likes (user_id, image_id) VALUES ($1, $2)`, [userId, imageId]);
       await this.pool.query(`UPDATE images SET likes_count = likes_count + 1 WHERE id = $1`, [imageId]);
-      return true; // liked
+      isLiked = true;
     }
+    
+    // Fetch the updated likes count to return
+    const countRes = await this.pool.query(`SELECT likes_count FROM images WHERE id = $1`, [imageId]);
+    const likesCount = countRes.rows.length > 0 ? countRes.rows[0].likes_count : 0;
+    
+    return { isLiked, likesCount };
   }
 
   async getLikedImages(userId: string): Promise<ImageItem[]> {
@@ -389,6 +396,57 @@ class DatabaseStore {
   async deleteCollection(id: string, userId: string): Promise<boolean> {
     const res = await this.pool.query(`DELETE FROM collections WHERE id = $1 AND user_id = $2`, [id, userId]);
     return res.rowCount !== null && res.rowCount > 0;
+  }
+
+  async updateCollection(id: string, updates: Partial<Collection>, userId: string): Promise<Collection> {
+    const fields = [];
+    const values = [];
+    let idx = 1;
+
+    if (updates.title !== undefined) {
+      fields.push(`title = $${idx++}`);
+      values.push(updates.title);
+    }
+    if (updates.description !== undefined) {
+      fields.push(`description = $${idx++}`);
+      values.push(updates.description);
+    }
+    if (updates.isPrivate !== undefined) {
+      fields.push(`is_private = $${idx++}`);
+      values.push(updates.isPrivate);
+    }
+
+    if (fields.length === 0) {
+      throw new Error("No fields to update");
+    }
+
+    values.push(id, userId);
+    
+    const query = `
+      UPDATE collections 
+      SET ${fields.join(', ')} 
+      WHERE id = $${idx} AND user_id = $${idx + 1}
+      RETURNING *
+    `;
+
+    const res = await this.pool.query(query, values);
+    
+    if (res.rows.length === 0) {
+      throw new Error("Collection not found or unauthorized");
+    }
+    
+    return this.mapCollectionRow(res.rows[0]);
+  }
+
+  async getUserCollectionIdsForImage(userId: string, imageId: string): Promise<string[]> {
+    const res = await this.pool.query(`
+      SELECT collection_id 
+      FROM collection_images ci
+      JOIN collections c ON ci.collection_id = c.id
+      WHERE c.user_id = $1 AND ci.image_id = $2
+    `, [userId, imageId]);
+    
+    return res.rows.map(row => row.collection_id);
   }
 
   // --- MAPPERS ---

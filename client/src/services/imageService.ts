@@ -47,4 +47,9 @@ export const imageService = {
     const res = await api.get<{ success: boolean; data: ImageItem[] }>('/images/liked');
     return res.data.data;
   },
+
+  async uploadImage(formData: FormData): Promise<ImageItem> {
+    const res = await api.post<{ success: boolean; data: ImageItem }>('/images/upload', formData);
+    return res.data.data;
+  }
 };

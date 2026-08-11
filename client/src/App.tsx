@@ -13,6 +13,7 @@ import { CreateCollectionModal } from './components/collections/CreateCollection
 import { FavoritesView } from './components/explore/FavoritesView';
 import { ProfileModal } from './components/profile/ProfileModal';
 import { UserProfileView } from './components/profile/UserProfileView';
+import { UploadModal } from './components/upload/UploadModal';
 import { ImageItem, Collection, Category, Style } from './types';
 import { imageService } from './services/imageService';
 import { collectionService } from './services/collectionService';
@@ -52,6 +53,7 @@ export const App: React.FC = () => {
   const [saveImage, setSaveImage] = useState<ImageItem | null>(null);
   const [showCreateCollection, setShowCreateCollection] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
   const [activeCollectionId, setActiveCollectionId] = useState<string | null>(null);
   const [activeUserIdentifier, setActiveUserIdentifier] = useState<string | null>(null);
 
@@ -171,6 +173,7 @@ export const App: React.FC = () => {
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
         onOpenProfile={() => setShowProfileModal(true)}
+        onOpenUpload={() => setShowUploadModal(true)}
       />
 
       {/* Main Content */}
@@ -321,6 +324,17 @@ export const App: React.FC = () => {
           onViewProfile={(identifier) => {
             setActiveUserIdentifier(identifier);
             setShowProfileModal(false);
+          }}
+        />
+      )}
+
+      {showUploadModal && (
+        <UploadModal
+          categories={categories}
+          styles={styles}
+          onClose={() => setShowUploadModal(false)}
+          onSuccess={() => {
+            fetchImages(); // Refresh the feed after upload
           }}
         />
       )}

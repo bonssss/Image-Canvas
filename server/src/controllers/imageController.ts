@@ -3,6 +3,7 @@ import { AuthenticatedRequest } from '../middlewares/authMiddleware';
 import { imageService } from '../services/imageService';
 import { aiGenerationService } from '../services/aiGenerationService';
 import { CursorPaginationParams } from '../types';
+import { uploadToCloudinary } from '../config/cloudinary';
 
 export class ImageController {
   async getImages(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
@@ -114,6 +115,48 @@ export class ImageController {
         data: generated,
         message: `Successfully generated ${generated.length} image(s)`,
       });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async uploadImage(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.file) {
+        res.status(400).json({ success: false, error: 'No image file provided' });
+        return;
+      }
+      const userId = req.user?.id;
+      if (!userId) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const { title, prompt, categoryId, styleId, aspectRatio } = req.body;
+      if (!title || !prompt || !categoryId || !aspectRatio) {
+        res.status(400).json({ success: false, error: 'Missing required fields' });
+        return;
+      }
+
+      const imageUrl = await uploadToCloudinary(req.file.buffer, 'promptcanvas/uploads');
+
+      const newImage = {
+        id: `img-up-${Date.now()}`,
+        title,
+        prompt,
+        imageUrl,
+        categoryId,
+        styleId: styleId || null,
+        aspectRatio,
+        userId,
+        likesCount: 0,
+        viewsCount: 0,
+        createdAt: new Date().toISOString(),
+      };
+
+      await imageService.addUploadedImage(newImage as any);
+
+      res.status(201).json({ success: true, data: newImage });
     } catch (err) {
       next(err);
     }

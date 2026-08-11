@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Compass,
   Layers,
@@ -9,10 +9,11 @@ import {
   User as UserIcon,
   ChevronDown,
   Wand2,
+  UploadCloud,
+  LogOut,
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
-import { LogOut } from 'lucide-react';
 
 interface NavbarProps {
   activeTab: 'explore' | 'generate' | 'collections' | 'favorites';
@@ -20,6 +21,7 @@ interface NavbarProps {
   searchQuery: string;
   setSearchQuery: (query: string) => void;
   onOpenProfile: () => void;
+  onOpenUpload?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -28,10 +30,22 @@ export const Navbar: React.FC<NavbarProps> = ({
   searchQuery,
   setSearchQuery,
   onOpenProfile,
+  onOpenUpload,
 }) => {
   const { theme, toggleTheme } = useTheme();
   const { user, logout } = useAuth();
   const [showUserDropdown, setShowUserDropdown] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowUserDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   return (
     <header className="sticky top-0 z-40 w-full bg-white dark:bg-[#181818] border-b border-[#e5e5e5] dark:border-[#2a2a2a] transition-colors">
@@ -78,7 +92,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         </div>
 
-        {/* Navigation Tabs (Unsplash text tabs) */}
+        {/* Navigation Tabs */}
         <nav className="flex items-center gap-1 sm:gap-4">
           <button
             onClick={() => setActiveTab('explore')}
@@ -100,16 +114,6 @@ export const Navbar: React.FC<NavbarProps> = ({
             Collections
           </button>
 
-          <button
-            onClick={() => setActiveTab('favorites')}
-            className={`text-sm font-medium transition-colors py-2 px-2 border-b-2 ${activeTab === 'favorites'
-                ? 'border-[#111111] dark:border-white text-[#111111] dark:text-white font-semibold'
-                : 'border-transparent text-[#767676] hover:text-[#111111] dark:hover:text-white'
-              }`}
-          >
-            Favorites
-          </button>
-
           {/* Generate Studio Solid Button (No gradients) */}
           <button
             onClick={() => setActiveTab('generate')}
@@ -121,10 +125,24 @@ export const Navbar: React.FC<NavbarProps> = ({
             <Wand2 className="w-3.5 h-3.5" />
             <span>Generate</span>
           </button>
+
+          <button
+            onClick={() => {
+              if (!user) {
+                onOpenProfile();
+                return;
+              }
+              if (onOpenUpload) onOpenUpload();
+            }}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-medium transition-colors text-[#767676] hover:text-[#111111] dark:hover:text-white hover:bg-[#f5f5f5] dark:hover:bg-[#242424]"
+          >
+            <UploadCloud className="w-3.5 h-3.5" />
+            <span>Upload</span>
+          </button>
         </nav>
 
         {/* Right Actions: Theme Toggle & User Profile */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2" ref={dropdownRef}>
           {/* Theme Switcher */}
           <button
             onClick={toggleTheme}

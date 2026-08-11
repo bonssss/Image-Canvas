@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { AuthenticatedRequest } from '../middlewares/authMiddleware';
 import { db } from '../db';
+import { uploadToCloudinary } from '../config/cloudinary';
 import { User } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -147,6 +148,34 @@ export class AuthController {
         success: true,
         data: profileData,
       });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async uploadProfilePhoto(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.file) {
+        res.status(400).json({ success: false, error: 'No image file provided' });
+        return;
+      }
+      
+      const userId = req.user?.id;
+      if (!userId) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const imageUrl = await uploadToCloudinary(req.file.buffer, 'promptcanvas/avatars');
+      
+      // Update user in database
+      const user = await db.getUser(userId);
+      if (user) {
+        user.avatarUrl = imageUrl;
+        await db.upsertUser(user);
+      }
+
+      res.json({ success: true, data: { avatarUrl: imageUrl } });
     } catch (err) {
       next(err);
     }
